@@ -15,7 +15,13 @@ if uploaded is not None:
 
     cols = list(df.columns)
     x_col = st.selectbox("X-axis column", cols, index=0)
-    y_col = "Count"  # Fixed to Count
+    
+    # Get all numerical columns
+    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    numeric_cols.append("Count")  # Add Count as an option
+    
+    # Y-axis selection
+    y_col = st.selectbox("Y-axis column", numeric_cols, index=len(numeric_cols)-1)  # Set Count as default
 
     # Chart configuration
     col1, col2, col3 = st.columns(3)
@@ -28,16 +34,41 @@ if uploaded is not None:
             value=15
         )
     with col3:
-        sort_by = st.selectbox("Sort by", ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"], index=0)
+        sort_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"] if y_col != "Count" else ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"]
+        sort_by = st.selectbox("Sort by", sort_options, index=0)
 
     # Prepare data
-    plot_df = df.groupby(x_col).size().reset_index(name="Count")
+    if y_col == "Count":
+        # For Count, group by X and count occurrences
+        plot_df = df.groupby(x_col).size().reset_index(name="Count")
+    else:
+        # For numeric columns, calculate mean, min, max, and count
+        agg_dict = {
+            y_col: ['mean', 'min', 'max', 'count']
+        }
+        plot_df = df.groupby(x_col).agg(agg_dict).reset_index()
+        plot_df.columns = [x_col, f"{y_col}_mean", f"{y_col}_min", f"{y_col}_max", f"{y_col}_count"]
+        
+        # Add a tooltip with additional stats
+        st.write(f"### Statistics for {y_col}")
+        stats_cols = st.columns(4)
+        with stats_cols[0]:
+            st.metric("Mean", f"{plot_df[f'{y_col}_mean'].mean():.2f}")
+        with stats_cols[1]:
+            st.metric("Min", f"{plot_df[f'{y_col}_min'].min():.2f}")
+        with stats_cols[2]:
+            st.metric("Max", f"{plot_df[f'{y_col}_max'].max():.2f}")
+        with stats_cols[3]:
+            st.metric("Total Count", f"{plot_df[f'{y_col}_count'].sum():,}")
+        
+        # Use mean for plotting
+        plot_df = plot_df[[x_col, f"{y_col}_mean"]].rename(columns={f"{y_col}_mean": y_col})
     
     # Sort data based on user selection
-    if sort_by == "Count (Descending)":
-        plot_df = plot_df.sort_values("Count", ascending=False)
-    elif sort_by == "Count (Ascending)":
-        plot_df = plot_df.sort_values("Count", ascending=True)
+    if sort_by == "Count (Descending)" or sort_by == "Value (Descending)":
+        plot_df = plot_df.sort_values(y_col, ascending=False)
+    elif sort_by == "Count (Ascending)" or sort_by == "Value (Ascending)":
+        plot_df = plot_df.sort_values(y_col, ascending=True)
     elif sort_by == "Name (A-Z)":
         plot_df = plot_df.sort_values(x_col)
     else:  # Name (Z-A)
@@ -73,11 +104,11 @@ if uploaded is not None:
     if chart_type != "Pie":
         if chart_type == "Horizontal Bar":
             ax.set_ylabel(x_col)
-            ax.set_xlabel("Count")
+            ax.set_xlabel(y_col)
         else:
-            ax.set_ylabel("Count")
+            ax.set_ylabel(y_col)
     
-    ax.set_title(f"{chart_type} Chart: Count by {x_col}")
+    ax.set_title(f"{chart_type} Chart: {y_col} by {x_col}")
     
     # Adjust label size and rotation
     if chart_type != "Pie":
