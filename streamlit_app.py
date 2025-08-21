@@ -3,39 +3,61 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
+# Enable interactive mode for matplotlib
+plt.ion()
+
 st.set_page_config(page_title="CSV Data Plotter", page_icon="📊", layout="wide")
-st.title("📊 CSV Data Plotter")
 
-uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
+# Create two main columns for the layout
+left_col, right_col = st.columns([1, 1], gap="large")
 
-if uploaded is not None:
-    df = pd.read_csv(uploaded)
-    st.write("### Data Preview")
-    st.dataframe(df.head(50), use_container_width=True)
+# Initialize df as None
+df = None
 
-    cols = list(df.columns)
-    x_col = st.selectbox("X-axis column", cols, index=0)
-    
-    # Get all numerical columns
-    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    numeric_cols.append("Count")  # Add Count as an option
-    
-    # Y-axis selection
-    y_col = st.selectbox("Y-axis column", numeric_cols, index=len(numeric_cols)-1)  # Set Count as default
+with left_col:
+    st.title("📊 CSV Data Plotter")
+    uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
 
-    # Chart configuration
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        chart_type = st.selectbox("Chart type", ["Bar", "Horizontal Bar", "Line", "Area", "Pie"], index=0)
-    with col2:
-        max_items = st.select_slider(
-            "Maximum items to show",
-            options=[5, 10, 15, 20, 25, 30, 'All'],
-            value=15
-        )
-    with col3:
-        sort_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"] if y_col != "Count" else ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"]
-        sort_by = st.selectbox("Sort by", sort_options, index=0)
+    if uploaded is not None:
+        df = pd.read_csv(uploaded)
+        st.write("### Data Preview")
+        st.dataframe(df.head(50), use_container_width=True)
+
+# Only proceed with the rest of the app if we have data
+if df is not None:
+
+    # Move chart controls and preview to right column
+    with right_col:
+        st.header("Chart Preview")
+        
+        # Chart controls in a container
+        with st.container():
+            st.subheader("Chart Controls")
+            if df is None:
+                st.info("Please upload a CSV file to begin")
+            
+            cols = list(df.columns)
+            x_col = st.selectbox("X-axis column", cols, index=0)
+            
+            # Get all numerical columns
+            numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+            numeric_cols.append("Count")  # Add Count as an option
+            
+            # Y-axis selection
+            y_col = st.selectbox("Y-axis column", numeric_cols, index=len(numeric_cols)-1)  # Set Count as default
+
+            # Chart configuration in two rows
+            control_col1, control_col2 = st.columns(2)
+            with control_col1:
+                chart_type = st.selectbox("Chart type", ["Bar", "Horizontal Bar", "Line", "Area", "Pie"], index=0)
+                max_items = st.select_slider(
+                    "Maximum items to show",
+                    options=[5, 10, 15, 20, 25, 30, 'All'],
+                    value=15
+                )
+            with control_col2:
+                sort_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"] if y_col != "Count" else ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"]
+                sort_by = st.selectbox("Sort by", sort_options, index=0)
 
     # Prepare data
     if y_col == "Count":
@@ -49,17 +71,18 @@ if uploaded is not None:
         plot_df = df.groupby(x_col).agg(agg_dict).reset_index()
         plot_df.columns = [x_col, f"{y_col}_mean", f"{y_col}_min", f"{y_col}_max", f"{y_col}_count"]
         
-        # Add a tooltip with additional stats
-        st.write(f"### Statistics for {y_col}")
-        stats_cols = st.columns(4)
-        with stats_cols[0]:
-            st.metric("Mean", f"{plot_df[f'{y_col}_mean'].mean():.2f}")
-        with stats_cols[1]:
-            st.metric("Min", f"{plot_df[f'{y_col}_min'].min():.2f}")
-        with stats_cols[2]:
-            st.metric("Max", f"{plot_df[f'{y_col}_max'].max():.2f}")
-        with stats_cols[3]:
-            st.metric("Total Count", f"{plot_df[f'{y_col}_count'].sum():,}")
+        # Add statistics to the left column
+        with left_col:
+            st.write(f"### Statistics for {y_col}")
+            stats_cols = st.columns(4)
+            with stats_cols[0]:
+                st.metric("Mean", f"{plot_df[f'{y_col}_mean'].mean():.2f}")
+            with stats_cols[1]:
+                st.metric("Min", f"{plot_df[f'{y_col}_min'].min():.2f}")
+            with stats_cols[2]:
+                st.metric("Max", f"{plot_df[f'{y_col}_max'].max():.2f}")
+            with stats_cols[3]:
+                st.metric("Total Count", f"{plot_df[f'{y_col}_count'].sum():,}")
         
         # Use mean for plotting
         plot_df = plot_df[[x_col, f"{y_col}_mean"]].rename(columns={f"{y_col}_mean": y_col})
@@ -78,9 +101,14 @@ if uploaded is not None:
     if max_items != 'All':
         plot_df = plot_df.head(max_items)
 
-    # Create the chart
-    fig, ax = plt.subplots()
-
+    # Create the chart with a larger figure size for better interactivity
+    fig, ax = plt.subplots(figsize=(10, 6))
+    fig.canvas.toolbar_visible = True
+    fig.canvas.header_visible = True
+    
+    # Enable grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
     # Convert x-axis values to strings for categorical plotting
     plot_df[x_col] = plot_df[x_col].astype(str)
 
@@ -121,29 +149,32 @@ if uploaded is not None:
     # Automatically adjust subplot parameters for better layout
     plt.tight_layout()
 
-    # ✅ Render at fixed size (not stretched)
-    # Create a container with fixed width
-    chart_container = st.container()
-    with chart_container:
-        st.markdown(
-            """
-            <style>
-                .stImage > img {
-                    max-width: 1024px !important;
-                    max-height: 512px !important;
-                }
-            </style>
-            """, 
-            unsafe_allow_html=True
-        )
-        st.pyplot(fig, use_container_width=False)
+    # Create chart container in the right column
+    with right_col:
+        chart_container = st.container()
+        with chart_container:
+            st.markdown(
+                """
+                <style>
+                    .stImage > img {
+                        max-width: 100% !important;
+                        max-height: 320px !important;
+                    }
+                </style>
+                """, 
+                unsafe_allow_html=True
+            )
+            st.pyplot(fig, use_container_width=True)
 
-    # ✅ Download chart as PNG
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    st.download_button(
-        "Download chart as PNG",
-        buf.getvalue(),
-        file_name="chart.png",
-        mime="image/png"
-    )
+        # ✅ Download chart as PNG - moved to left column
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        
+    # Add download button to left column
+    with left_col:
+        st.download_button(
+            "Download chart as PNG",
+            buf.getvalue(),
+            file_name="chart.png",
+            mime="image/png"
+        )
