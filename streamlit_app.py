@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import streamlit as st
 import numpy as np
 from matplotlib.colors import to_rgb
+import calendar
+from datetime import datetime
 
 # Enable interactive mode for matplotlib
 plt.ion()
@@ -26,6 +28,50 @@ COLOR_SCHEMES = {
     'Electric': ['#00FF00', '#FF00FF', '#00FFFF', '#FF3300', '#3300FF', '#FFFF00', '#FF0099'],  # Bold electric colors
     'Sunset': ['#FF0000', '#FF4D00', '#FF9900', '#FFCC00', '#FFFF00', '#FF00CC', '#FF33FF']  # Bright warm colors
 }
+
+def is_month_column(series):
+    """Check if a column contains month names"""
+    # Convert to string and lowercase for comparison
+    values = series.astype(str).str.lower().unique()
+    
+    # Check against different month formats
+    month_formats = {
+        'full': set(calendar.month_name[1:]),  # Full month names
+        'abbr': set(calendar.month_abbr[1:]),  # Abbreviated month names
+        'number': set(f"{i:02d}" for i in range(1, 13))  # Month numbers 01-12
+    }
+    
+    # Convert all possible month formats to lowercase
+    month_formats['full'] = {m.lower() for m in month_formats['full']}
+    month_formats['abbr'] = {m.lower() for m in month_formats['abbr']}
+    
+    # Check if at least 2 values match any month format
+    matches = sum(1 for v in values if any(v in month_set for month_set in month_formats.values()))
+    return matches >= 2
+
+def get_month_order_value(value):
+    """Convert a month (name or number) to a numeric value for sorting"""
+    value = str(value).lower().strip()
+    
+    # Try parsing as a month name or abbreviation
+    try:
+        # Try full month name
+        return datetime.strptime(value, '%B').month
+    except ValueError:
+        try:
+            # Try abbreviated month name
+            return datetime.strptime(value, '%b').month
+        except ValueError:
+            try:
+                # Try numeric month
+                month = int(value)
+                if 1 <= month <= 12:
+                    return month
+            except ValueError:
+                pass
+    
+    # If not a valid month, return a large number to sort it last
+    return 13
 
 def get_colors(scheme_name, num_items):
     """Get colors from a scheme, interpolating if needed"""
@@ -89,8 +135,16 @@ if df is not None:
                     value=15
                 )
             with control_col2:
-                sort_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"] if y_col != "Count" else ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"]
-                sort_by = st.selectbox("Sort by", sort_options, index=0)
+                # Determine if X-axis contains months
+                has_months = is_month_column(df[x_col])
+                
+                # Add Year to Date option if months are detected
+                base_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"]
+                if has_months:
+                    base_options.insert(0, "Year to Date")
+                
+                sort_options = base_options if y_col != "Count" else [opt.replace("Value", "Count") for opt in base_options]
+                sort_by = st.selectbox("Sort by", sort_options, index=0 if has_months else 0)
                 show_values = st.toggle("Show values on chart", value=False)
                 color_scheme = st.selectbox("Color Scheme", list(COLOR_SCHEMES.keys()), index=0)
                 dark_mode = st.toggle("Dark Mode", value=False)
@@ -124,9 +178,18 @@ if df is not None:
         plot_df = plot_df[[x_col, f"{y_col}_mean"]].rename(columns={f"{y_col}_mean": y_col})
     
     # Sort data based on user selection
-    if sort_by == "Count (Descending)" or sort_by == "Value (Descending)":
+    if sort_by == "Year to Date":
+        # Sort by month order
+        plot_df['month_order'] = plot_df[x_col].apply(get_month_order_value)
+        if chart_type == "Pie":
+            # For pie charts, sort in reverse order to achieve clockwise layout
+            plot_df = plot_df.sort_values('month_order', ascending=False)
+        else:
+            plot_df = plot_df.sort_values('month_order')
+        plot_df = plot_df.drop('month_order', axis=1)
+    elif sort_by in ["Count (Descending)", "Value (Descending)"]:
         plot_df = plot_df.sort_values(y_col, ascending=False)
-    elif sort_by == "Count (Ascending)" or sort_by == "Value (Ascending)":
+    elif sort_by in ["Count (Ascending)", "Value (Ascending)"]:
         plot_df = plot_df.sort_values(y_col, ascending=True)
     elif sort_by == "Name (A-Z)":
         plot_df = plot_df.sort_values(x_col)
