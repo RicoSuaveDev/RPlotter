@@ -2,9 +2,42 @@ import io
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
+import numpy as np
+from matplotlib.colors import to_rgb
 
 # Enable interactive mode for matplotlib
 plt.ion()
+
+def darken_color(color, factor=0.6):
+    """Darken a color by multiplying RGB values by factor"""
+    rgb = to_rgb(color)
+    return tuple(val * factor for val in rgb)
+
+# Define color schemes
+COLOR_SCHEMES = {
+    'Blue Pastels': ['#A6CAF0', '#89B9E2', '#6DA8D6', '#5098CA', '#3387BE', '#1677B2', '#0066A6'],
+    'Green Pastels': ['#B5E2BE', '#98D4A4', '#7BC68A', '#5EB870', '#41AA56', '#249C3C', '#078E22'],
+    'Purple Pastels': ['#E0C6E4', '#D2ABD6', '#C490C8', '#B675BA', '#A85AAC', '#9A3F9E', '#8C2490'],
+    'Pink Pastels': ['#FFD1DC', '#FFB6C1', '#FF9AA2', '#FF7F83', '#FF6464', '#FF4945', '#FF2D26'],
+    'Orange Pastels': ['#FFD4B2', '#FFC299', '#FFB080', '#FF9E66', '#FF8C4D', '#FF7A33', '#FF681A'],
+    'Rainbow': ['#FF9AA2', '#98FB98', '#87CEFA', '#FFD700', '#FFA07A', '#DDA0DD', '#98FB98'],  # More vibrant rainbow colors
+    'Neon': ['#FF1177', '#00FF00', '#00FFFF', '#FF00FF', '#FFFF00', '#1FFF1F', '#FF4444'],  # Bright neon colors
+    'Candy': ['#FF0090', '#FF3F3F', '#00B2FF', '#9F00FF', '#00FF00', '#FFB700', '#FF60A6'],  # Sweet vibrant colors
+    'Electric': ['#00FF00', '#FF00FF', '#00FFFF', '#FF3300', '#3300FF', '#FFFF00', '#FF0099'],  # Bold electric colors
+    'Sunset': ['#FF0000', '#FF4D00', '#FF9900', '#FFCC00', '#FFFF00', '#FF00CC', '#FF33FF']  # Bright warm colors
+}
+
+def get_colors(scheme_name, num_items):
+    """Get colors from a scheme, interpolating if needed"""
+    base_colors = COLOR_SCHEMES[scheme_name]
+    if num_items <= len(base_colors):
+        return base_colors[:num_items]
+    else:
+        # Interpolate colors if we need more than we have
+        from matplotlib.colors import LinearSegmentedColormap, to_rgb
+        base_rgb_colors = [to_rgb(c) for c in base_colors]
+        cmap = LinearSegmentedColormap.from_list("custom", base_rgb_colors)
+        return [plt.matplotlib.colors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, num_items)]
 
 st.set_page_config(page_title="CSV Data Plotter", page_icon="📊", layout="wide")
 
@@ -58,6 +91,9 @@ if df is not None:
             with control_col2:
                 sort_options = ["Value (Descending)", "Value (Ascending)", "Name (A-Z)", "Name (Z-A)"] if y_col != "Count" else ["Count (Descending)", "Count (Ascending)", "Name (A-Z)", "Name (Z-A)"]
                 sort_by = st.selectbox("Sort by", sort_options, index=0)
+                show_values = st.toggle("Show values on chart", value=False)
+                color_scheme = st.selectbox("Color Scheme", list(COLOR_SCHEMES.keys()), index=0)
+                dark_mode = st.toggle("Dark Mode", value=False)
 
     # Prepare data
     if y_col == "Count":
@@ -106,25 +142,119 @@ if df is not None:
     fig.canvas.toolbar_visible = True
     fig.canvas.header_visible = True
     
-    # Enable grid for better readability
-    ax.grid(True, linestyle='--', alpha=0.7)
+    # Set dark mode styles if enabled
+    if dark_mode:
+        # Set dark background
+        fig.patch.set_facecolor('#1E1E1E')
+        ax.set_facecolor('#2D2D2D')
+        
+        # Set grid and spine colors
+        ax.grid(True, linestyle='--', alpha=0.3, color='#666666')
+        ax.spines['bottom'].set_color('#666666')
+        ax.spines['top'].set_color('#666666')
+        ax.spines['left'].set_color('#666666')
+        ax.spines['right'].set_color('#666666')
+        
+        # Set tick colors
+        ax.tick_params(colors='#FFFFFF')
+        
+        # Set label colors
+        ax.xaxis.label.set_color('#FFFFFF')
+        ax.yaxis.label.set_color('#FFFFFF')
+        ax.title.set_color('#FFFFFF')
+    else:
+        # Light mode settings
+        fig.patch.set_facecolor('white')
+        ax.set_facecolor('white')
+        ax.grid(True, linestyle='--', alpha=0.7)
     
     # Convert x-axis values to strings for categorical plotting
     plot_df[x_col] = plot_df[x_col].astype(str)
 
+    # Get colors for the current plot
+    colors = get_colors(color_scheme, len(plot_df))
+
     if chart_type == "Bar":
-        ax.bar(plot_df[x_col], plot_df[y_col])
+        # Create darker edge colors for each bar
+        edge_colors = [darken_color(color) for color in colors]
+        bars = ax.bar(plot_df[x_col], plot_df[y_col], color=colors, 
+                     edgecolor=edge_colors, linewidth=0.8)
+        if show_values:
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.2f}', ha='center', va='bottom',
+                        color='white' if dark_mode else 'black')
     elif chart_type == "Horizontal Bar":
-        ax.barh(plot_df[x_col], plot_df[y_col])
+        edge_colors = [darken_color(color) for color in colors]
+        bars = ax.barh(plot_df[x_col], plot_df[y_col], color=colors,
+                      edgecolor=edge_colors, linewidth=0.8)
+        if show_values:
+            for bar in bars:
+                width = bar.get_width()
+                ax.text(width, bar.get_y() + bar.get_height()/2.,
+                        f'{width:.2f}', ha='left', va='center',
+                        color='white' if dark_mode else 'black')
     elif chart_type == "Line":
-        ax.plot(plot_df[x_col], plot_df[y_col], marker='o')
+        # Add colored lines with darker edges
+        for i in range(len(plot_df) - 1):
+            ax.plot(plot_df[x_col].iloc[i:i+2], plot_df[y_col].iloc[i:i+2], 
+                   color=colors[i], linewidth=2, zorder=2)
+            ax.plot(plot_df[x_col].iloc[i:i+2], plot_df[y_col].iloc[i:i+2], 
+                   color=darken_color(colors[i]), linewidth=0.8, zorder=3)
+        # Add points with darker edge of the same color
+        for i, (x, y) in enumerate(zip(plot_df[x_col], plot_df[y_col])):
+            ax.scatter(x, y, color=colors[i], 
+                      edgecolor=darken_color(colors[i]), 
+                      linewidth=0.8, s=80, zorder=4)
+        if show_values:
+            for x, y in zip(plot_df[x_col], plot_df[y_col]):
+                ax.text(x, y, f'{y:.2f}', ha='center', va='bottom',
+                       color='white' if dark_mode else 'black')
     elif chart_type == "Area":
-        ax.fill_between(range(len(plot_df)), plot_df[y_col], alpha=0.5)
-        ax.plot(range(len(plot_df)), plot_df[y_col], marker='o')
+        for i in range(len(plot_df) - 1):
+            ax.fill_between(range(i, i+2), plot_df[y_col].iloc[i:i+2], 
+                          color=colors[i], alpha=0.6)
+            # Add outline in darker shade of the same color
+            ax.plot(range(i, i+2), plot_df[y_col].iloc[i:i+2],
+                   color=darken_color(colors[i]), linewidth=0.8, zorder=3)
+        # Add points with darker edge of the same color
+        for i in range(len(plot_df)):
+            ax.scatter(i, plot_df[y_col].iloc[i], color=colors[i],
+                      edgecolor=darken_color(colors[i]), 
+                      linewidth=0.8, s=80, zorder=4)
+        if show_values:
+            for i, y in enumerate(plot_df[y_col]):
+                ax.text(i, y, f'{y:.2f}', ha='center', va='bottom',
+                       color='white' if dark_mode else 'black')
         ax.set_xticks(range(len(plot_df)))
         ax.set_xticklabels(plot_df[x_col])
     elif chart_type == "Pie":
-        ax.pie(plot_df[y_col], labels=plot_df[x_col].astype(str), autopct="%1.1f%%")
+        # Create darker edge colors for each slice
+        edge_colors = [darken_color(color) for color in colors]
+        values = plot_df[y_col].values  # Get values as numpy array for easier indexing
+        
+        def make_autopct(values, show_val):
+            def my_autopct(pct):
+                # Find the corresponding value based on percentage
+                idx = int(round(pct * len(values) / 100.0)) - 1
+                if idx < 0:  # Handle edge case for small percentages
+                    idx = 0
+                val = values[min(idx, len(values)-1)]  # Ensure we don't exceed array bounds
+                if show_val:
+                    return f'{pct:.1f}%\n({val:.2f})'
+                return f'{pct:.1f}%'
+            return my_autopct
+        
+        ax.pie(plot_df[y_col], labels=plot_df[x_col].astype(str), 
+               colors=colors,
+               wedgeprops={'edgecolor': 'none', 'linewidth': 0.8},  # Initialize without edge
+               autopct=make_autopct(values, show_values),
+               textprops={'color': 'white' if dark_mode else 'black'})
+        
+        # Update edge colors for each wedge individually
+        for wedge, edge_color in zip(ax.patches, edge_colors):
+            wedge.set_edgecolor(edge_color)
     
     # Set labels and title
     if chart_type != "Horizontal Bar":
@@ -136,15 +266,21 @@ if df is not None:
         else:
             ax.set_ylabel(y_col)
     
-    ax.set_title(f"{chart_type} Chart: {y_col} by {x_col}")
+    ax.set_title(f"{chart_type} Chart: {y_col} by {x_col}", 
+                 color='white' if dark_mode else 'black')
     
     # Adjust label size and rotation
     if chart_type != "Pie":
         if chart_type == "Horizontal Bar":
-            plt.yticks(fontsize=8)
+            plt.yticks(fontsize=8, color='white' if dark_mode else 'black')
         else:
-            plt.xticks(fontsize=8, rotation=45, ha='right')
+            plt.xticks(fontsize=8, rotation=45, ha='right', color='white' if dark_mode else 'black')
             plt.subplots_adjust(bottom=0.2)
+        
+        # Update tick label colors
+        ax.tick_params(axis='both', colors='white' if dark_mode else 'black')
+        for label in ax.get_xticklabels() + ax.get_yticklabels():
+            label.set_color('white' if dark_mode else 'black')
     
     # Automatically adjust subplot parameters for better layout
     plt.tight_layout()
